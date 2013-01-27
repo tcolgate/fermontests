@@ -30,6 +30,9 @@ public class DataView extends Activity implements OnTouchListener
     public void onCreate(Bundle savedInstanceState )
     {
         super.onCreate(savedInstanceState);
+        setContentView(R.layout.dataview);
+
+        Intent intent = getIntent();
 
         // initialize our XYPlot reference:
         mySimpleXYPlot = (XYPlot) findViewById(R.id.mySimpleXYPlot);
@@ -67,6 +70,8 @@ public class DataView extends Activity implements OnTouchListener
         // by default, AndroidPlot displays developer guides to aid in laying out your plot.
         // To get rid of them call disableAllMarkup():
         mySimpleXYPlot.disableAllMarkup();
+
+
     }
 
 

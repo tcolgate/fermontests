@@ -7,9 +7,12 @@ import android.app.Activity;
 
 import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.content.Intent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import android.view.MotionEvent;
@@ -36,6 +39,17 @@ public class MainActivity extends Activity
     private static final int REQUEST_CONNECT_DEVICE_INSECURE = 2;
     private static final int REQUEST_ENABLE_BT = 3;
 
+    private TextView txt;
+    private Handler mTextHandler = new Handler() {
+      @Override
+      public void handleMessage(Message msg) {
+        Bundle b = msg.getData();
+        String val = b.getString("My Key");
+        txt.setText(txt.getText()+"Item " + val + System.getProperty("line.separator"));
+      }
+    };
+
+
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState )
@@ -43,14 +57,15 @@ public class MainActivity extends Activity
         int REQUEST_ENABLE_BT = 1;
 
         super.onCreate(savedInstanceState);
+        setContentView(R.layout.main);
+        txt=(TextView)findViewById(R.id.myTextView);
+
         // Get local Bluetooth adapter
         mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
         // If the adapter is null, then Bluetooth is not supported
         if (mBluetoothAdapter == null) {
             Toast.makeText(this, "Bluetooth is not available", Toast.LENGTH_LONG).show();
-            finish();
-            return;
         }
 
         if (!mBluetoothAdapter.isEnabled()) {
@@ -69,6 +84,45 @@ public class MainActivity extends Activity
 
 //        Toast.makeText(this, "Bluetooth is available", Toast.LENGTH_LONG).show();
 
-        setContentView(R.layout.main);
+    }
+
+    @Override
+    public void onStart()
+    {
+      super.onStart();
+
+      Toast.makeText(this, "onStart()", Toast.LENGTH_LONG).show();
+
+      Thread worker = new Thread(new Runnable(){
+        public int i = 0;
+
+        @Override
+        public void run() {
+          try {
+            while(true) {
+              Thread.sleep(1000);
+              i++;
+              Message m = new Message();
+              Bundle b = new Bundle();
+              b.putString("My Key", "Value: " + String.valueOf(i));
+              m.setData(b);
+              // send message to the handler with the current message handler          
+              mTextHandler.sendMessage(m);
+            }
+          } catch (InterruptedException e) {
+            e.printStackTrace();
+          }
+        }
+      });
+
+      worker.start();
+    }
+
+    /** Called when the user clicks the Send button */
+    public void viewData(View view) {
+      // Do something in response to button
+
+       Intent intent = new Intent(this, DataView.class);
+       startActivity(intent);
     }
 }
