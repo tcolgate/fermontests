@@ -1,4 +1,4 @@
-package com.example.testbluetooth;
+package com.mcfarlane.fermmon;
 
 import java.util.Set;
 import java.util.Arrays;
@@ -21,47 +21,15 @@ import com.androidplot.series.XYSeries;
 import com.androidplot.xy.*;
 
 
-public class MainActivity extends Activity implements OnTouchListener 
+public class DataView extends Activity implements OnTouchListener 
 {
-    // Local Bluetooth adapter
-    private BluetoothAdapter mBluetoothAdapter = null;
-
     private XYPlot mySimpleXYPlot;
 
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState )
     {
-        int REQUEST_ENABLE_BT = 1;
-
         super.onCreate(savedInstanceState);
-        // Get local Bluetooth adapter
-        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-
-        // If the adapter is null, then Bluetooth is not supported
-        if (mBluetoothAdapter == null) {
-            Toast.makeText(this, "Bluetooth is not available", Toast.LENGTH_LONG).show();
-            finish();
-            return;
-        }
-
-        if (!mBluetoothAdapter.isEnabled()) {
-            Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-            startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
-        }
-
-        Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
-        // If there are paired devices
-        if (pairedDevices.size() > 0) {
-            // Loop through paired devices
-            for (BluetoothDevice device : pairedDevices) {
-                Toast.makeText(this, "Bluetooth is available on " + device.getName() + "\n" + device.getAddress(), Toast.LENGTH_LONG).show();
-            }
-        }
-
-//        Toast.makeText(this, "Bluetooth is available", Toast.LENGTH_LONG).show();
-
-        setContentView(R.layout.main);
 
         // initialize our XYPlot reference:
         mySimpleXYPlot = (XYPlot) findViewById(R.id.mySimpleXYPlot);
