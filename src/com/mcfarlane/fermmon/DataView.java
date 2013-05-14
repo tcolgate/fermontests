@@ -36,7 +36,7 @@ public class DataView extends Activity implements OnTouchListener
 
         // initialize our XYPlot reference:
         mySimpleXYPlot = (XYPlot) findViewById(R.id.mySimpleXYPlot);
-	mySimpleXYPlot.setOnTouchListener(this);
+      	//mySimpleXYPlot.setOnTouchListener(this);
 
         // Create a couple arrays of y-values to plot:
         Number[] series1Numbers = {1, 8, 5, 2, 7, 4};
