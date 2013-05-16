@@ -45,7 +45,7 @@ public class MainActivity extends Activity
       public void handleMessage(Message msg) {
         Bundle b = msg.getData();
         String val = b.getString("My Key");
-        //txt.setText(txt.getText()+"Item " + val + System.getProperty("line.separator"));
+        txt.setText(txt.getText()+"Item " + val + System.getProperty("line.separator"));
       }
     };
 
@@ -82,7 +82,7 @@ public class MainActivity extends Activity
             }
         }
 
-//        Toast.makeText(this, "Bluetooth is available", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, "Bluetooth is available", Toast.LENGTH_LONG).show();
 
     }
 
