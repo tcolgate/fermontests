@@ -2,9 +2,9 @@
 #include <SD.h>
 #include <OneWire.h>
 #include <SoftwareSerial.h>
-#include "RCSwitch.h"
-#include "RTClib.h"
-#include "DallasTemperature.h"
+#include <RCSwitch.h>
+#include <RTClib.h>
+#include <DallasTemperature.h>
 
 // Define pins you're using for serial communication
 // for the BlueSMiRF connection
