@@ -45,6 +45,8 @@ void setup(void) {
 }
 
 void loop(void) {
+  int HighByte, LowByte, TReading, SignBit, Tc_100, Whole, Fract;
+
  /*
   // Wait for command-line input
   if(Serial.available() > 0)
@@ -67,7 +69,9 @@ void loop(void) {
 //  mySwitch.switchOff(1, 1);        // Switch 1st socket from 1st group off
 //  delay(1000);
 
- byte i;
+  
+
+  byte i;
   byte present = 0;
   byte data[12];
   byte addr[8];
@@ -123,4 +127,33 @@ void loop(void) {
   Serial.print(" CRC=");
   Serial.print( OneWire::crc8( data, 8), HEX);
   Serial.println();
+
+  LowByte = data[0];
+  HighByte = data[1];
+  TReading = (HighByte << 8) + LowByte;
+  SignBit = TReading & 0x8000;  // test most sig bit
+  if (SignBit) // negative
+  {
+    TReading = (TReading ^ 0xffff) + 1; // 2's comp
+  }
+  Tc_100 = (6 * TReading) + TReading / 4;    // multiply by (100 * 0.0625) or 6.25
+
+  Whole = Tc_100 / 100;  // separate off the whole and fractional portions
+  Fract = Tc_100 % 100;
+
+
+  if (SignBit) // If its negative
+  {
+     Serial.print("-");
+  }
+  Serial.print(Whole);
+  Serial.print(".");
+  if (Fract < 10)
+  {
+     Serial.print("0");
+  }
+  Serial.print(Fract);
+
+  Serial.print("\r\n");
+
 }
