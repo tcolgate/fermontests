@@ -6,46 +6,117 @@
 #include <RTClib.h>
 #include <DallasTemperature.h>
 
+/**Pins
+ * 0  - oboard tx
+ * 1  - oboard rx
+ * 2  - Bluesmird RX
+ * 3  - Bluesmird TX
+ * 4  - I2C
+ * 5
+ * 6
+ * 7
+ * 8
+ * 9
+ * 10 - Adafruit datalogger CS pin
+ * 11
+ * 12
+ * 13 - Remote Control simulation pin
+ */
 // Define pins you're using for serial communication
 // for the BlueSMiRF connection
 // The TX pin on the arduino connects to the RX pin on the bluesmirf,
 // and RX on arduino side, to TX on the bluesmirf
-#define TXPIN 3
 #define RXPIN 2
-SoftwareSerial BlueSerial(RXPIN, TXPIN);
-
+#define TXPIN 3
+// I2C bus pin for the temperature sensors
+#define I2CPIN 4
+// SD Card pin - default on the adafruit logging board
+#define SDPIN 10
 // This is the pin connecting to the Remote control transmit
 #define RCPIN 13
 
-#define I2CPIN 2
 
-OneWire ds(I2CPIN); 
 
-// Create an instance of the software serial object
-RCSwitch mySwitch = RCSwitch();
+/* Read the internal voltage */
+long readVcc() {
+  // Read 1.1V reference against AVcc
+  // set the reference to Vcc and the measurement to the internal 1.1V reference
+  #if defined(__AVR_ATmega32U4__) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
+    ADMUX = _BV(REFS0) | _BV(MUX4) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+  #elif defined (__AVR_ATtiny24__) || defined(__AVR_ATtiny44__) || defined(__AVR_ATtiny84__)
+    ADMUX = _BV(MUX5) | _BV(MUX0);
+  #elif defined (__AVR_ATtiny25__) || defined(__AVR_ATtiny45__) || defined(__AVR_ATtiny85__)
+    ADMUX = _BV(MUX3) | _BV(MUX2);
+  #else
+    ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+  #endif
 
-void setup(void) {
- /*
-  // Define the appropriate input/output pins
+  delay(2); // Wait for Vref to settle
+  ADCSRA |= _BV(ADSC); // Start conversion
+  while (bit_is_set(ADCSRA,ADSC)); // measuring
+
+  uint8_t low  = ADCL; // must read ADCL first - it then locks ADCH
+  uint8_t high = ADCH; // unlocks both
+
+  long result = (high<<8) | low;
+
+  result = 1125300L / result; // Calculate Vcc (in mV); 1125300 = 1.1*1023*1000
+  return result; // Vcc in millivolts
+}
+
+SoftwareSerial BlueSerial(RXPIN, TXPIN);
+void setupBluetooth(void){
   pinMode(RXPIN, INPUT);
   pinMode(TXPIN, OUTPUT);
 
-  mySwitch.enableTransmit(RCPIN);  // Using Pin #10
-
-  // Begin communicating with the bluetooth interface
-  Serial.begin(9600);
   BlueSerial.begin(9600);
-  
-  // Say we are starting the serial com
-  Serial.println("Serial start!");
-  BlueSerial.println("Serial start!");
-  */
+}
+
+RCSwitch mySwitch = RCSwitch();
+void setupRemoteControl(void){
+  mySwitch.enableTransmit(RCPIN);
+}
+
+void setupSDCardReader(void){
+  pinMode(SDPIN, OUTPUT);
+  if (!SD.begin(SDPIN)) {
+    Serial.println("Card failed, or not present");
+  }
+  Serial.println("card initialized.");
+}
+
+RTC_DS1307 RTC; // define the Real Time Clock object
+void setupRTC(void){
+  // connect to RTC
+  if (!RTC.begin()) {
+    Serial.println("RTC failed");
+  }
+
+  if (! RTC.isrunning()) {
+    Serial.println("RTC is NOT running!");
+    // following line sets the RTC to the date & time this sketch was compiled
+    RTC.adjust(DateTime(__DATE__, __TIME__));
+  }
+}
+
+OneWire ds(I2CPIN);
+void setupSensors(void){
+}
+
+void setup(void) {
+  Wire.begin();
   Serial.begin(9600);
 
+  setupRTC();
+  setupBluetooth();
+  setupSDCardReader();
+  setupRemoteControl();
+  setupSensors();
 }
 
 void loop(void) {
   int HighByte, LowByte, TReading, SignBit, Tc_100, Whole, Fract;
+  DateTime now = RTC.now();
 
  /*
   // Wait for command-line input
@@ -63,13 +134,13 @@ void loop(void) {
  */
 
 //  mySwitch.sendTriState("00000FFF0F0F");
-//  delay(1000);  
+//  delay(1000);
 //  mySwitch.switchOn(1, 1);         // Switch 1st socket from 1st group on
 //  delay(1000);
 //  mySwitch.switchOff(1, 1);        // Switch 1st socket from 1st group off
 //  delay(1000);
 
-  
+
 
   byte i;
   byte present = 0;
@@ -77,7 +148,6 @@ void loop(void) {
   byte addr[8];
 
   if ( !ds.search(addr)) {
-      Serial.print("No more addresses.\r\n");
       ds.reset_search();
       return;
   }
@@ -113,7 +183,7 @@ void loop(void) {
   // we might do a ds.depower() here, but the reset will take care of it.
 
   present = ds.reset();
-  ds.select(addr);    
+  ds.select(addr);
   ds.write(0xBE);         // Read Scratchpad
 
   Serial.print("P=");
@@ -156,4 +226,21 @@ void loop(void) {
 
   Serial.print("\r\n");
 
+  Serial.print("Battery level: ");
+  Serial.print(readVcc());
+  Serial.print("\r\n");
+
+  Serial.print("Date: ");
+  Serial.print(now.year(), DEC);
+  Serial.print('/');
+  Serial.print(now.month(), DEC);
+  Serial.print('/');
+  Serial.print(now.day(), DEC);
+  Serial.print(' ');
+  Serial.print(now.hour(), DEC);
+  Serial.print(':');
+  Serial.print(now.minute(), DEC);
+  Serial.print(':');
+  Serial.print(now.second(), DEC);
+  Serial.println();
 }
