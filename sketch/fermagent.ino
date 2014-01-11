@@ -35,10 +35,14 @@
 // This is the pin connecting to the Remote control transmit
 #define RCPIN 13
 
+void notice(String msg);
+void  debug(String msg);
+void   info(String msg);
+void  error(String msg);
+String strDate(DateTime);
+void   outputSensor(String type, String id, String outstr);
 
-
-/* Read the internal voltage */
-long readVcc() {
+/* Read the internal voltage */ long readVcc() {
   // Read 1.1V reference against AVcc
   // set the reference to Vcc and the measurement to the internal 1.1V reference
   #if defined(__AVR_ATmega32U4__) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
@@ -80,22 +84,23 @@ void setupRemoteControl(void){
 void setupSDCardReader(void){
   pinMode(SDPIN, OUTPUT);
   if (!SD.begin(SDPIN)) {
-    Serial.println("Card failed, or not present");
+    error("Card failed, or not present");
   }
-  Serial.println("card initialized.");
+  info("card initialized.");
 }
 
 RTC_DS1307 RTC; // define the Real Time Clock object
 void setupRTC(void){
   // connect to RTC
   if (!RTC.begin()) {
-    Serial.println("RTC failed");
+    error("RTC failed");
   }
 
   if (! RTC.isrunning()) {
-    Serial.println("RTC is NOT running!");
-    // following line sets the RTC to the date & time this sketch was compiled
-    RTC.adjust(DateTime(__DATE__, __TIME__));
+    DateTime builddate = DateTime(__DATE__, __TIME__);
+    info("RTC is NOT running!");
+    info("Attempt to set date to " + strDate(builddate));
+    RTC.adjust(builddate);
   }
 }
 
@@ -114,9 +119,127 @@ void setup(void) {
   setupSensors();
 }
 
-void loop(void) {
+void scanDSSensors(void){
   int HighByte, LowByte, TReading, SignBit, Tc_100, Whole, Fract;
-  DateTime now = RTC.now();
+
+  byte i;
+  byte present = 0;
+  byte data[12];
+  byte addr[8];
+
+  while (ds.search(addr)) {
+    const String unknown = "Unknown";
+    String type = unknown;
+    String id = "";
+    String msg = "";
+
+    if ( OneWire::crc8( addr, 7) != addr[7]) {
+      error("CRC is not valid!");
+      continue;
+    }
+
+    switch(addr[0]){
+      case 0x10: {
+        const String str = "DS18S20";
+        type = str;
+        break;
+      }     
+      case 0x28: {
+        const String str = "DS18B20";
+        type = str;
+        break;
+      }
+      default: {
+        notice("-- Unknown device type");
+        continue;
+      }
+    }
+    
+
+    ds.reset();
+    ds.select(addr);
+    ds.write(0x44,1);         // start conversion, with parasite power on at the end
+
+    for( i = 0; i < 8; i++) {
+      id += String(addr[i], HEX);
+    }
+
+    delay(1000);     // maybe 750ms is enough, maybe not
+    // we might do a ds.depower() here, but the reset will take care of it.
+
+    present = ds.reset();
+    ds.select(addr);
+    ds.write(0xBE);         // Read Scratchpad
+
+    msg = "P=" + String(present, HEX);
+    msg += " D=";
+    for ( i = 0; i < 9; i++) {           // we need 9 bytes
+      data[i] = ds.read();
+      msg += String(data[i], HEX);
+    }
+    msg += (" CRC=");
+    msg += String(OneWire::crc8( data, 8), HEX);
+
+    LowByte = data[0];
+    HighByte = data[1];
+    TReading = (HighByte << 8) + LowByte;
+    SignBit = TReading & 0x8000;  // test most sig bit
+    if (SignBit) // negative
+    {
+      TReading = (TReading ^ 0xffff) + 1; // 2's comp
+    }
+    Tc_100 = (6 * TReading) + TReading / 4;    // multiply by (100 * 0.0625) or 6.25
+
+    Whole = Tc_100 / 100;  // separate off the whole and fractional portions
+    Fract = Tc_100 % 100;
+
+
+    msg += " T=";
+    if (SignBit) // If its negative
+    {
+      msg += "-";
+    }
+    msg += String(Whole) + ".";
+
+    if (Fract < 10)
+    {
+      msg += "0";
+    }
+    msg += Fract;
+
+    msg += "C";
+
+    outputSensor(type, id, msg);
+  }
+
+  ds.reset_search();
+  return;
+}
+
+void scanSensors(void) {
+  outputSensor("Vcc","in", "V=" + String(readVcc()) + "mV");
+  scanDSSensors();
+}
+
+String strDate(DateTime dt){
+  String res = "";
+  res += dt.year();
+  res += '/';
+  res += dt.month();
+  res += '/';
+  res += dt.day();
+  res += ' ';
+  res += dt.hour();
+  res += ':';
+  res += dt.minute();
+  res += ':';
+  res += dt.second();
+
+  return res;
+}
+
+void loop(void) {
+  scanSensors();
 
  /*
   // Wait for command-line input
@@ -140,107 +263,23 @@ void loop(void) {
 //  mySwitch.switchOff(1, 1);        // Switch 1st socket from 1st group off
 //  delay(1000);
 
-
-
-  byte i;
-  byte present = 0;
-  byte data[12];
-  byte addr[8];
-
-  if ( !ds.search(addr)) {
-      ds.reset_search();
-      return;
-  }
-
-  Serial.print("R=");
-  for( i = 0; i < 8; i++) {
-    Serial.print(addr[i], HEX);
-    Serial.print(" ");
-  }
-
-  if ( OneWire::crc8( addr, 7) != addr[7]) {
-      Serial.print("CRC is not valid!\r\n");
-      return;
-  }
-
-  if ( addr[0] == 0x10) {
-      Serial.print("Device is a DS18S20 family device.\r\n");
-  }
-  else if ( addr[0] == 0x28) {
-      Serial.print("Device is a DS18B20 family device.\r\n");
-  }
-  else {
-      Serial.print("Device family is not recognized: 0x\r\n");
-      Serial.println(addr[0],HEX);
-      return;
-  }
-
-  ds.reset();
-  ds.select(addr);
-  ds.write(0x44,1);         // start conversion, with parasite power on at the end
-
-  delay(1000);     // maybe 750ms is enough, maybe not
-  // we might do a ds.depower() here, but the reset will take care of it.
-
-  present = ds.reset();
-  ds.select(addr);
-  ds.write(0xBE);         // Read Scratchpad
-
-  Serial.print("P=");
-  Serial.print(present,HEX);
-  Serial.print(" ");
-  for ( i = 0; i < 9; i++) {           // we need 9 bytes
-    data[i] = ds.read();
-    Serial.print(data[i], HEX);
-    Serial.print(" ");
-  }
-  Serial.print(" CRC=");
-  Serial.print( OneWire::crc8( data, 8), HEX);
-  Serial.println();
-
-  LowByte = data[0];
-  HighByte = data[1];
-  TReading = (HighByte << 8) + LowByte;
-  SignBit = TReading & 0x8000;  // test most sig bit
-  if (SignBit) // negative
-  {
-    TReading = (TReading ^ 0xffff) + 1; // 2's comp
-  }
-  Tc_100 = (6 * TReading) + TReading / 4;    // multiply by (100 * 0.0625) or 6.25
-
-  Whole = Tc_100 / 100;  // separate off the whole and fractional portions
-  Fract = Tc_100 % 100;
-
-
-  if (SignBit) // If its negative
-  {
-     Serial.print("-");
-  }
-  Serial.print(Whole);
-  Serial.print(".");
-  if (Fract < 10)
-  {
-     Serial.print("0");
-  }
-  Serial.print(Fract);
-
-  Serial.print("\r\n");
-
-  Serial.print("Battery level: ");
-  Serial.print(readVcc());
-  Serial.print("\r\n");
-
-  Serial.print("Date: ");
-  Serial.print(now.year(), DEC);
-  Serial.print('/');
-  Serial.print(now.month(), DEC);
-  Serial.print('/');
-  Serial.print(now.day(), DEC);
-  Serial.print(' ');
-  Serial.print(now.hour(), DEC);
-  Serial.print(':');
-  Serial.print(now.minute(), DEC);
-  Serial.print(':');
-  Serial.print(now.second(), DEC);
-  Serial.println();
+  delay(1000);
 }
+
+// How we output sensor values
+void outputSensor(String type, String id, String outstr){
+  DateTime now = RTC.now();
+  Serial.println("++ " + strDate(now) + " " + type + "[" + id + "] " + outstr);
+}
+
+// These log to the serial port
+void logbase(String lvl, String msg){
+  DateTime now = RTC.now();
+  Serial.println("-- " + strDate(now) + " " + lvl + ": " + msg);
+}
+
+void notice(String msg){logbase("NOTICE", msg);}
+void  debug(String msg){logbase("DEBUG" , msg);}
+void   info(String msg){logbase("INFO"  , msg);}
+void  error(String msg){logbase("ERROR" , msg);}
+
