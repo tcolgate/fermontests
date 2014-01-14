@@ -5,22 +5,47 @@
 #include <RCSwitch.h>
 #include <RTClib.h>
 #include <DallasTemperature.h>
+#include <avr/power.h>
+#include <avr/sleep.h>
+
+
+int sleepStatus = 0;             // variable to store a request for sleep
+int count = 0;                   // counter
+
+void sleepNow()
+{
+  set_sleep_mode(SLEEP_MODE_IDLE);
+  sleep_enable();
+                
+  power_adc_disable();
+  power_spi_disable();
+  power_timer0_disable();
+  power_timer1_disable();
+  power_timer2_disable();
+  power_twi_disable();
+  
+  sleep_mode();            // here the device is actually put to sleep!!
+ 
+  sleep_disable();         // first thing after waking from sleep:
+                            // disable sleep...
+  power_all_enable();
+}
 
 /**Pins
  * 0  - oboard tx
  * 1  - oboard rx
  * 2  - Bluesmird RX
  * 3  - Bluesmird TX
- * 4  - I2C
- * 5
+ * 4  - DS OneWire control
+ * 5  - DS OneWire Vcc (maybe)
  * 6
  * 7
  * 8
- * 9
- * 10 - Adafruit datalogger CS pin
- * 11
- * 12
- * 13 - Remote Control simulation pin
+ * 9 -  Remote Control simulation pin
+ * 10 - SPI Adafruit datalogger CS pin
+ * 11 - SPI MOSI
+ * 12 - SPI MISO
+ * 13 - SPI SCK
  */
 // Define pins you're using for serial communication
 // for the BlueSMiRF connection
@@ -28,12 +53,13 @@
 // and RX on arduino side, to TX on the bluesmirf
 #define RXPIN 2
 #define TXPIN 3
-// I2C bus pin for the temperature sensors
-#define I2CPIN 4
+// OneWire bus pin for the temperature sensors
+#define ONEWIREPIN 4
+#define ONEWIREPOWERPIN 5
+// This is the pin connecting to the Remote control transmit
+#define RCPIN 9
 // SD Card pin - default on the adafruit logging board
 #define SDPIN 10
-// This is the pin connecting to the Remote control transmit
-#define RCPIN 13
 
 void notice(String msg);
 void  debug(String msg);
@@ -81,12 +107,61 @@ void setupRemoteControl(void){
   mySwitch.enableTransmit(RCPIN);
 }
 
+/* 
+// set up variables using the SD utility library functions:
+SdVolume volume;
+SdFile root;
+void cardInfo(void){
+  // print the type of card
+  debug("\nCard type: ");
+  switch(SD.type()) {
+    case SD_CARD_TYPE_SD1:
+      debug("SD1");
+      break;
+    case SD_CARD_TYPE_SD2:
+      debug("SD2");
+      break;
+    case SD_CARD_TYPE_SDHC:
+      debug("SDHC");
+      break;
+    default:
+      debug("Unknown");
+  }
+
+  // Now we will try to open the 'volume'/'partition' - it should be FAT16 or FAT32
+  if (!volume.init(SD)) {
+    debug("Could not find FAT16/FAT32 partition.\nMake sure you've formatted the card");
+    return;
+  }
+
+
+  // print the type and size of the first FAT-type volume
+  uint32_t volumesize;
+  debug("\nVolume type is FAT");
+  debug(String(volume.fatType(), DEC));
+  
+  volumesize = volume.blocksPerCluster();    // clusters are collections of blocks
+  volumesize *= volume.clusterCount();       // we'll have a lot of clusters
+  volumesize *= 512;                            // SD card blocks are always 512 bytes
+  volumesize /= 1024;
+  volumesize /= 1024;
+  debug("Volume size (Mbytes): " + String(volumesize));
+
+  //debug("Files found on the card (name, date and size in bytes): ");
+  //root.openRoot(volume);
+  //root.ls(LS_R | LS_DATE | LS_SIZE);
+}
+ */
+
 void setupSDCardReader(void){
   pinMode(SDPIN, OUTPUT);
   if (!SD.begin(SDPIN)) {
     error("Card failed, or not present");
   }
   info("card initialized.");
+  // we'll use the initialization code from the utility libraries
+  // since we're just testing if the card is working!
+
 }
 
 RTC_DS1307 RTC; // define the Real Time Clock object
@@ -104,8 +179,11 @@ void setupRTC(void){
   }
 }
 
-OneWire ds(I2CPIN);
 void setupSensors(void){
+  pinMode(ONEWIREPOWERPIN, OUTPUT);
+  digitalWrite(ONEWIREPOWERPIN, HIGH);
+
+  digitalWrite(ONEWIREPOWERPIN, LOW);
 }
 
 void setup(void) {
@@ -126,6 +204,10 @@ void scanDSSensors(void){
   byte present = 0;
   byte data[12];
   byte addr[8];
+
+  digitalWrite(ONEWIREPOWERPIN, HIGH);
+  delay(5);
+  OneWire ds(ONEWIREPIN);
 
   while (ds.search(addr)) {
     const String unknown = "Unknown";
@@ -213,6 +295,9 @@ void scanDSSensors(void){
   }
 
   ds.reset_search();
+
+  digitalWrite(ONEWIREPOWERPIN, LOW);
+
   return;
 }
 
@@ -238,23 +323,31 @@ String strDate(DateTime dt){
   return res;
 }
 
+#define USB_SERIAL 0
+#define BT_SERIAL  1
+void dispatchByte(int chan, int c){
+}
+
 void loop(void) {
+  int idle_count = 0;
+  bool idle = true;
+
   scanSensors();
 
- /*
   // Wait for command-line input
-  if(Serial.available() > 0)
+  while(Serial.available() > 0)
   {
-    // Read off all bytes
-    BlueSerial.print( (char) Serial.read());
+    dispatchByte(USB_SERIAL, Serial.read());
+    idle_count = 0;
+    idle = false;
   }
 
-  if(BlueSerial.available() > 0)
+  while(BlueSerial.available() > 0)
   {
-    // Read off all bytes
-    Serial.print( (char) BlueSerial.read());
+    dispatchByte(BT_SERIAL, BlueSerial.read());
+    idle_count = 0;
+    idle = false;
   }
- */
 
 //  mySwitch.sendTriState("00000FFF0F0F");
 //  delay(1000);
@@ -264,22 +357,38 @@ void loop(void) {
 //  delay(1000);
 
   delay(1000);
+
+  if(idle && idle_count > 10){
+    //sleepNow();
+  }
 }
 
 // How we output sensor values
+bool debugMsgs = true;
 void outputSensor(String type, String id, String outstr){
   DateTime now = RTC.now();
   Serial.println("++ " + strDate(now) + " " + type + "[" + id + "] " + outstr);
+  if( debugMsgs){
+    BlueSerial.println("++ " + strDate(now) + " " + type + "[" + id + "] " + outstr);
+  }
 }
 
 // These log to the serial port
 void logbase(String lvl, String msg){
   DateTime now = RTC.now();
   Serial.println("-- " + strDate(now) + " " + lvl + ": " + msg);
+  if( debugMsgs){
+    BlueSerial.println("-- " + strDate(now) + " " + lvl + ": " + msg);
+  }
+}
+
+void  debug(String msg){
+  if( debugMsgs){
+    logbase("DEBUG" , msg);
+  }
 }
 
 void notice(String msg){logbase("NOTICE", msg);}
-void  debug(String msg){logbase("DEBUG" , msg);}
 void   info(String msg){logbase("INFO"  , msg);}
 void  error(String msg){logbase("ERROR" , msg);}
 
