@@ -5,6 +5,8 @@
 #include <RCSwitch.h>
 #include <RTClib.h>
 #include <DallasTemperature.h>
+
+/*
 #include <avr/power.h>
 #include <avr/sleep.h>
 
@@ -30,6 +32,8 @@ void sleepNow()
                             // disable sleep...
   power_all_enable();
 }
+*/
+
 
 /**Pins
  * 0  - oboard tx
@@ -68,7 +72,8 @@ void  error(String msg);
 String strDate(DateTime);
 void   outputSensor(String type, String id, String outstr);
 
-/* Read the internal voltage */ long readVcc() {
+/* Read the internal voltage */ 
+long readVcc() {
   // Read 1.1V reference against AVcc
   // set the reference to Vcc and the measurement to the internal 1.1V reference
   #if defined(__AVR_ATmega32U4__) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
@@ -153,6 +158,101 @@ void cardInfo(void){
 }
  */
 
+#define USB_SERIAL 0
+#define BT_SERIAL  1
+#define CHAN_CNT   2
+#define CHAN_SZ    64 
+char *chan_buffs[CHAN_CNT];
+int   chan_curr[CHAN_CNT];
+
+void setupChans(void){
+  for(int i = 0 ; i < CHAN_CNT ; i++){
+     chan_buffs[i] = (char *) malloc(CHAN_SZ * sizeof(char));
+     chan_curr[i]  = 0;
+  }
+}
+
+void cmd_debug(int argc, char** argv){
+  debug("Debug Command: " + String(argv[0]));
+  for(int i = 1; i <= argc; i++){
+    info("Arg[" + String(i,DEC) + "]: " + String(argv[i]));
+  }
+};
+
+void cmd_viewlog(int argc, char** argv){
+  debug("ViewLog Command: " + String(argv[0]));
+  for(int i = 1; i <= argc; i++){
+    info("Arg[" + String(i,DEC) + "]: " + String(argv[i]));
+  }
+};
+
+typedef void (*cmd_func)(int argc, char** argv);
+typedef struct cmd_hash_item_s {
+  String name;
+  cmd_func f;
+} cmd_hash_item;
+
+cmd_hash_item cmd_hash[] = {
+  {"debug",   cmd_debug},
+  {"viewlog", cmd_viewlog},
+  {NULL,NULL}
+};
+
+void run_cmd(int argc, char** argv){
+  String cmd = String(argv[0]);
+  for(int i = 0; cmd_hash[i].name != NULL; i++){
+    if(cmd_hash[i].name == cmd){
+      (cmd_hash[i].f)(argc, argv); 
+      return;
+    }
+  }
+  error("Unknown Command: " + cmd);
+}
+
+#define ARGS_MAX  8
+void dispatch_cmd(int chan){
+  debug(String(chan_buffs[chan]));
+
+  int argc = 0;
+  int len = strlen(chan_buffs[chan]);
+  char* argv[ARGS_MAX];
+  memset(argv,0,ARGS_MAX * sizeof(char*));
+  argv[argc] = chan_buffs[chan];
+
+  for(int i = 0; i < len; i++){
+    if((chan_buffs[chan])[i] == (char) NULL){
+      break;
+    } else if ((chan_buffs[chan])[i] == ' '){
+      (chan_buffs[chan])[i] = (char) NULL;
+      i++;
+      argc++;
+      argv[argc] = (chan_buffs[chan]) + i;
+    }
+  }
+
+   run_cmd(argc,argv); 
+}
+
+void dispatch_error(int can, String err){
+  error("Error on chan[" + String(can, DEC) + "]: " + err);
+}
+
+void dispatchByte(int chan, char c){
+  if (c == '\r'){
+    (chan_buffs[chan])[chan_curr[chan]] = 0;
+    dispatch_cmd(chan);
+    chan_curr[chan] = 0;
+  } else {
+    if (chan_curr[chan] >= CHAN_SZ){
+      dispatch_error(chan,"Input buffer overflow");
+      chan_curr[chan] = 0;
+    } else {
+      (chan_buffs[chan])[chan_curr[chan]] = c;
+      chan_curr[chan]++;
+    }
+  }
+}
+
 void setupSDCardReader(void){
   pinMode(SDPIN, OUTPUT);
   if (!SD.begin(SDPIN)) {
@@ -190,6 +290,7 @@ void setup(void) {
   Wire.begin();
   Serial.begin(9600);
 
+  setupChans();
   setupRTC();
   setupBluetooth();
   setupSDCardReader();
@@ -323,10 +424,6 @@ String strDate(DateTime dt){
   return res;
 }
 
-#define USB_SERIAL 0
-#define BT_SERIAL  1
-void dispatchByte(int chan, int c){
-}
 
 void loop(void) {
   int idle_count = 0;
@@ -337,14 +434,14 @@ void loop(void) {
   // Wait for command-line input
   while(Serial.available() > 0)
   {
-    dispatchByte(USB_SERIAL, Serial.read());
+    dispatchByte(USB_SERIAL, (char) Serial.read());
     idle_count = 0;
     idle = false;
   }
 
   while(BlueSerial.available() > 0)
   {
-    dispatchByte(BT_SERIAL, BlueSerial.read());
+    dispatchByte(BT_SERIAL, (char) BlueSerial.read());
     idle_count = 0;
     idle = false;
   }
@@ -356,11 +453,14 @@ void loop(void) {
 //  mySwitch.switchOff(1, 1);        // Switch 1st socket from 1st group off
 //  delay(1000);
 
-  delay(1000);
+  if(idle){
+    idle_count++;
+    delay(1000);
+  };
 
-  if(idle && idle_count > 10){
-    //sleepNow();
-  }
+  //if(idle && idle_count > 10){
+  //sleepNow();
+  //}
 }
 
 // How we output sensor values
